@@ -1,0 +1,236 @@
+---
+title: "InceptionV3_chest_X"
+author: "Jazielinho"
+date: "18 de septiembre de 2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Deep Learning para reconocimiento de Neumonía
+
+Voy a implementar una aplicación para reconocer a partir de rayos X si la persona tiene o no neumonía
+
+### Importante
+
+Para que lo pruebes en tu ordenador, tienes que cambiar estos parÃ¡metros. Donde se encuentran las imágenes y donde se va a guardar el modelo entrenado
+
+```{r}
+PATH_IMAGES <- 'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/Images_train_val_test/'
+PATH_TRAIN <- paste(PATH_IMAGES, 'train/', sep='')
+PATH_VAL <- paste(PATH_IMAGES, 'val/', sep='')
+PATH_TEST <- paste(PATH_IMAGES, 'test/', sep='')
+
+DIR_SAVE_MODEL <- 'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/r_training/'
+FILE_MODEL <- paste(DIR_SAVE_MODEL, 'modelInception.hdf5', sep='')
+```
+
+
+
+### Cargando las librerías necesarias
+
+Necesitamos keras y tensorflow para poder entrenar el modelo
+
+```{r, message=FALSE, warning=FALSE, error=FALSE}
+library(keras)
+library(caret)
+library(pROC)
+library(lime)
+```
+
+### Definiendo parámetros de la red neuronal
+
+Como vamos a usar el modelo pre entrenado InceptionV3, vamos a definir unos parámetros para que el cálculo se pueda realizar correctamente:
+
+* InceptionV3 fue entrenado con imágenes de tamaño 299 * 299
+* Por temas de memoria, usaremos un tamaño de batch de 8
+* Esto implica que el modelo entrenará leyendo de 8 en 8.
+
+```{r}
+CLASE_0 = 'NORMAL'
+CLASE_1 = 'NEUMONIA'
+BATCH_SIZE = 8
+TARGET_SIZE = c(299, 299)
+```
+
+### Definiendo los datos de entrenamiento, validación y test
+
+Para entrenar vamos a usar aumento de datos, esto para poder evitar sobreajuste y que el modelo pueda aprender de más ejemplos de las que tenemos:
+
+```{r}
+datagen <- image_data_generator(width_shift_range = 0.4,
+                                height_shift_range = 0.4,
+                                shear_range = 0.4,
+                                zoom_range = 0.4,
+                                horizontal_flip = TRUE,
+                                vertical_flip = FALSE,
+                                preprocessing_function = inception_v3_preprocess_input)
+
+datagen_test <- image_data_generator(preprocessing_function = inception_v3_preprocess_input)
+
+```
+
+
+Vamos a aplicar el aumento de imágenes en los datos de entrenamiento y validación. Para los datos de test usaremos las imágenes originales.
+
+
+```{r}
+train_generator <- flow_images_from_directory(
+  PATH_TRAIN,
+  datagen,
+  target_size = TARGET_SIZE,
+  batch_size = BATCH_SIZE,
+  class_mode = 'binary',
+  shuffle = TRUE)
+
+val_generator <- flow_images_from_directory(
+  PATH_VAL,
+  datagen,
+  target_size = TARGET_SIZE,
+  batch_size = BATCH_SIZE,
+  class_mode = 'binary',
+  shuffle = TRUE)
+
+test_generator <- flow_images_from_directory(
+  PATH_TEST,
+  datagen_test,
+  target_size = TARGET_SIZE,
+  batch_size = BATCH_SIZE,
+  class_mode = 'binary',
+  shuffle = FALSE)
+
+```
+
+
+### Analizando algunas imágenes
+
+* Distribución de la target
+
+```{r}
+target_ <- ifelse(train_generator$classes == 0, CLASE_0, CLASE_1)
+barplot(prop.table(table(target_)), main = 'DistribuciÃ³n de la target')
+```
+
+* Vamos a observar algunas imágenes
+
+```{r}
+datagen_plot <- image_data_generator(rescale = 1/255.)
+image_generator <- flow_images_from_directory(PATH_TRAIN, datagen_plot)
+
+op <- par(mfrow = c(2, 2), pty = "s", mar = c(1, 0, 1, 0))
+for (i in 1:4) {
+  batch <- generator_next(image_generator)
+  plot(as.raster(batch[[1]][1,,,]))
+  title(ifelse(batch[[2]][1] == 0, CLASE_0, CLASE_1))
+}
+par(op)
+```
+
+
+### Entrenando el modelo
+
+Vamos a usar como modelo preentrenado InceptionV3.
+
+Vamos a congelar todas las capas menos la última, que será de tamaño 1, el cual indica la salida (0 si es NORMAL, 1 si es NEUMONIA)
+
+```{r}
+conv_base <- application_inception_v3(
+  weights = "imagenet",
+  include_top = FALSE,
+  pooling = 'avg'
+  )
+
+freeze_weights(conv_base)
+
+model <- keras_model_sequential() %>%
+  conv_base %>%
+  layer_batch_normalization() %>%
+  layer_dropout(0.5) %>%
+  layer_dense(1, activation = 'sigmoid')
+
+model %>% summary()
+
+model %>% compile(optimizer = optimizer_adam(lr=0.001),
+                  loss = 'binary_crossentropy',
+                  metrics = c('accuracy'))
+
+```
+
+Entrenando en el conjunto de entrenamiento
+
+```{r}
+model %>% fit_generator(train_generator,
+                        epochs = 5,
+                        steps_per_epoch = train_generator$n / BATCH_SIZE)
+```
+
+Luego de haber entrenado en pocas iteraciones, vamos a descongelar todas las capas y entrenar de nuevo. Esta vez usando un conjunto de validación y realizando una parada temprana, esto para evitar el sobreajuste
+
+```{r}
+# Agregando una regularizaciÃ³n y descongelando las capas
+for (layer in model$layers){
+  layer$W_regularizer <- regularizer_l2(1e-3)
+  layer$trainable <- TRUE
+}
+
+model %>% compile(optimizer = optimizer_adam(lr=1e-4, decay = 1e-5),
+                  loss = 'binary_crossentropy',
+                  metrics = c('accuracy'))
+
+model %>% summary()
+
+# Agregando checkpoint de parada y guardar el mejor modelo
+checkpointer <- callback_model_checkpoint(filepath = FILE_MODEL, verbose = 1, save_best_only = TRUE)
+earlyStopping <- callback_early_stopping(monitor = 'val_loss', patience = 10, verbose = 2, 
+                                         mode = 'auto', min_delta = 1e-4)
+```
+
+
+Entrenando el modelo y validándolo en el conjunto de validación
+
+
+```{r}
+# Entrenando el modelo
+model %>% fit_generator(train_generator,
+                        epochs = 200,
+                        steps_per_epoch = train_generator$n / BATCH_SIZE,
+                        validation_data = val_generator,
+                        validation_steps = val_generator$n / BATCH_SIZE,
+                        callbacks = list(checkpointer, earlyStopping),
+                        initial_epoch = 5)
+```
+
+
+### Probando en test
+
+Ahora vamos a leer el mejor modelo y probarlo en el conjunto de test
+
+```{r, message=FALSE, warning=FALSE, error=FALSE}
+best_model <- load_model_hdf5(FILE_MODEL)
+```
+
+Prediciendo en test
+
+```{r}
+pred_test <- best_model %>% predict_generator(test_generator,
+                                              steps = test_generator$n / BATCH_SIZE,
+                                              verbose=1)
+class_test <- test_generator$classes
+class_predict <- as.numeric(pred_test > 0.5)
+```
+
+Evaluando en test
+
+```{r}
+caret::confusionMatrix(as.factor(class_test), as.factor(class_predict))
+roc_test <- pROC::roc(class_test, as.numeric(pred_test))
+plot(roc_test)
+roc_test
+```
+
+Se puede observar que los resultados en el conjunto de test son muy buenos.
+
