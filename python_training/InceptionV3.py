@@ -8,6 +8,7 @@ from keras.optimizers import *
 from keras.regularizers import *
 from keras.layers.normalization import BatchNormalization
 from keras.callbacks import ModelCheckpoint
+# import tensorflowjs as tfjs
 
 from sklearn.metrics import accuracy_score, roc_auc_score
 
@@ -18,7 +19,7 @@ PATH_VAL = 'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/Ima
 PATH_TEST = 'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/Images_train_val_test/test'
 EPOCH_INIT = 5
 EPOCH_END = 200
-FILE_MODEL = 'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/server/models/Inception_V3'
+FILE_MODEL = 'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/server_flask/models/Inception_V3'
 
 
 def training():
@@ -105,7 +106,13 @@ def training():
 
     print('Model complete!!')
 
+def convert_keras_to_js():
+    model = load_model(FILE_MODEL)
+    tfjs.converters.save_keras_model(model,
+                                     'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/tensorflow.js/model_js')
+    print('Exit!!!')
 
 
 if __name__ == '__main__':
     training()
+    convert_keras_to_js()
