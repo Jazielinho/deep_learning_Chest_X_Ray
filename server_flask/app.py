@@ -23,7 +23,7 @@ from gevent.pywsgi import WSGIServer
 app = Flask(__name__)
 
 # Model saved with Keras model.save()
-MODEL_PATH = 'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/server/models/Inception_V3'
+MODEL_PATH = 'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/server_flask/models/Inception_V3'
 TARGET_SIZE = (299, 299)
 CLASS_0 = 'NORMAL'
 CLASS_1 = 'PNEUMONIA'

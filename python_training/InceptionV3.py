@@ -108,11 +108,11 @@ def training():
 
 def convert_keras_to_js():
     model = load_model(FILE_MODEL)
-    tfjs.converters.save_keras_model(model,
-                                     'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/tensorflow.js/model_js')
+    # tfjs.converters.save_keras_model(model,
+    #                                  'D:/CREAR_APLICACIONES/04_CUARTA_SEMANA/deep_learning_Chest_X_Ray/tensorflow.js/model_js')
     print('Exit!!!')
 
 
 if __name__ == '__main__':
     training()
-    convert_keras_to_js()
+    # convert_keras_to_js()
